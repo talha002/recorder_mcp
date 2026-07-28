@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "recorder-mcp"
+version = "0.1.0"
+description = "MCP server for Windows window recording, OCR capture, and input automation"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi",
+    "fastapi-mcp",
+    "uvicorn",
+    "mss",
+    "av",
+    "pillow",
+    "numpy",
+    "pyautogui",
+    "pytesseract",
+    "pydantic-settings",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "ruff",
+    "mypy",
+    "httpx",
+]
+
+[tool.setuptools]
+py-modules = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.mypy]
+strict = true
+plugins = ["pydantic.mypy"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+pythonpath = ["src"]
