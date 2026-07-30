@@ -27,7 +27,7 @@ General-purpose window-recording MCP server. FastAPI + fastapi-mcp over streamab
 | `src/windows.py` | implemented | win32: enumerate / find / find-by-PID / rect / client-rect / focus / DPI init; process names via `psutil` | recorder, keyboard, ocr, command_runner, main |
 | `src/recorder.py` | implemented | `RecordingManager` + capture-loop thread + PyAV PTS encoding (mss grab, locked geometry, h264/yuv420p, flush-in-finally, zero-frames cleanup) | main (start/stop) |
 | `src/keyboard.py` | implemented | `type_into_window` (`is_valid` guard → focus → settle delay → pyautogui typing); `InvalidWindowError`; tunable `SETTLE_DELAY_S`/`TYPE_INTERVAL_S` | command_runner, main |
-| `src/ocr.py` | planned | region grab → preprocess (2×, grayscale, invert-if-dark, Otsu) → pytesseract | command_runner, main |
+| `src/ocr.py` | implemented | `capture_window_text` (`IsIconic` guard → `WindowMinimizedError("window minimized")`; client/window rect → mss grab → PIL → `upscale` → `to_grayscale` → `invert_if_dark` → `otsu_threshold` → `pytesseract.image_to_string`); tuning knobs `UPSCALE_FACTOR`/`DARK_MEAN_LUMINANCE`; `tesseract_cmd` wired from settings at import | command_runner, main |
 | `src/services/command_runner.py` | planned | `run_command_sync`: focus → type+Enter → wait → OCR | main |
 
 ## MCP Tools (7)
@@ -77,6 +77,8 @@ General-purpose window-recording MCP server. FastAPI + fastapi-mcp over streamab
 | 6 | `design/epics/Epic-6.md` | Testing, MCP handshake, manual E2E, README |
 
 ## Change Log
+
+- 2026-07-30 — E4.S3: `src/ocr.py` implemented (`capture_window_text(hwnd, client_area_only=True)`: `IsIconic` guard raising `WindowMinimizedError("window minimized")` before any grab; rect via `get_client_rect_screen` (default) / `get_window_rect`; one-shot `mss.MSS()` grab closed in `finally` → PIL BGRX→RGB → `_preprocess` chain `upscale` (2× Lanczos) → `to_grayscale` → `invert_if_dark` (invert when mean luminance < `DARK_MEAN_LUMINANCE=128`) → `otsu_threshold` (numpy-only Otsu, uint8 {0,255} output) → `pytesseract.image_to_string`; `pytesseract.pytesseract.tesseract_cmd` wired from `settings.tesseract_cmd` at import; `pytesseract` added to mypy untyped-module overrides); `tests/test_ocr.py` added (12 tests: synthetic light-on-dark/dark-on-light invert decisions, upscale/grayscale units, Otsu dtype/range + bimodal split, pipeline order, preprocessed-image passthrough, tesseract_cmd wiring, minimized guard without grab, client/window rect selection).
 
 - 2026-07-30 — E4.S2: `type_text` endpoint implemented (window resolution via `find_window` in `asyncio.to_thread`; `type_into_window(hwnd, text, press_enter)` in `asyncio.to_thread`; `error="window not found: <target>"` on miss; `InvalidWindowError`/`PyWinError`/`FailSafeException` → `error="typing failed: ..."`); 5 endpoint tests added to `tests/test_main.py`.
 
