@@ -9,6 +9,7 @@ from mcp.types import LATEST_PROTOCOL_VERSION
 from src.config import settings
 from src.main import app
 from src.models import WindowInfo
+from src.recorder import AlreadyRecordingError
 
 AUTH_HEADERS = {"Authorization": "Bearer test-token"}
 
@@ -97,7 +98,7 @@ def test_tool_route_with_wrong_token_returns_401(client: TestClient) -> None:
 
 
 def test_tool_route_with_token_returns_not_implemented(client: TestClient) -> None:
-    response = client.post("/start-recording", headers=AUTH_HEADERS, json={"hwnd": 1001})
+    response = client.post("/type-text", headers=AUTH_HEADERS, json={"hwnd": 1001, "text": "hi"})
     assert response.status_code == 200
     assert response.json()["error"] == "not implemented"
 
@@ -297,6 +298,81 @@ def test_open_app_process_exits_before_window_returns_error(
     assert payload["hwnd"] is None
     assert payload["pid"] == 4321
     assert "exited with code 1" in payload["error"]
+
+
+def test_start_recording_without_token_returns_401(client: TestClient) -> None:
+    response = client.post("/start-recording", json={"hwnd": 1001})
+    assert response.status_code == 401
+
+
+def _mock_recording(monkeypatch: pytest.MonkeyPatch, session_id: str = "sess-abc123") -> Mock:
+    info = WindowInfo(hwnd=1001, title="Untitled - Notepad", process="notepad.exe")
+    monkeypatch.setattr("src.main.find_window", Mock(return_value=info))
+    manager_mock = Mock()
+    manager_mock.start.return_value = session_id
+    monkeypatch.setattr("src.main.manager", manager_mock)
+    return manager_mock
+
+
+def test_start_recording_happy_path_returns_session_id(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manager_mock = _mock_recording(monkeypatch)
+
+    response = client.post(
+        "/start-recording",
+        headers=AUTH_HEADERS,
+        json={"hwnd": 1001, "client_area_only": True},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload == {"session_id": "sess-abc123", "error": None}
+    manager_mock.start.assert_called_once_with(1001, True, settings.fps)
+
+
+def test_start_recording_fps_override_honored(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manager_mock = _mock_recording(monkeypatch)
+
+    response = client.post("/start-recording", headers=AUTH_HEADERS, json={"hwnd": 1001, "fps": 15})
+
+    assert response.status_code == 200
+    assert response.json()["session_id"] == "sess-abc123"
+    manager_mock.start.assert_called_once_with(1001, False, 15)
+
+
+def test_start_recording_window_not_found_returns_error(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("src.main.find_window", Mock(return_value=None))
+    manager_mock = Mock()
+    monkeypatch.setattr("src.main.manager", manager_mock)
+
+    response = client.post(
+        "/start-recording", headers=AUTH_HEADERS, json={"title": "no-such-window"}
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["session_id"] == ""
+    assert payload["error"] == "window not found: title='no-such-window'"
+    manager_mock.start.assert_not_called()
+
+
+def test_start_recording_duplicate_hwnd_rejected(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manager_mock = _mock_recording(monkeypatch)
+    manager_mock.start.side_effect = AlreadyRecordingError("already recording")
+
+    response = client.post("/start-recording", headers=AUTH_HEADERS, json={"hwnd": 1001})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["session_id"] == ""
+    assert payload["error"] == "already recording"
 
 
 def test_mcp_endpoint_without_token_returns_401(client: TestClient) -> None:
