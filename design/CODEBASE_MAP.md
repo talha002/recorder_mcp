@@ -20,11 +20,11 @@ General-purpose window-recording MCP server. FastAPI + fastapi-mcp over streamab
 
 | Module | Status | Responsibility | Used by |
 |---|---|---|---|
-| `src/main.py` | implemented | FastAPI app, FastApiMCP mount, `/health`, Tesseract startup check, `list_windows` live, 6 placeholder tool routes (DPI hook pending Epic 2) | MCP clients |
+| `src/main.py` | implemented | FastAPI app, FastApiMCP mount, `/health`, Tesseract startup check, `list_windows` + `open_app` live, 5 placeholder tool routes (DPI hook pending Epic 2) | MCP clients |
 | `src/config.py` | implemented | `Settings` (pydantic-settings) + `settings` singleton | all modules |
 | `src/auth.py` | implemented | `verify_mcp_token` Bearer dependency | every tool route |
 | `src/models.py` | implemented | All request/response Pydantic models, `WindowInfo` | main, services |
-| `src/windows.py` | implemented | win32: enumerate / find / rect / client-rect / focus / DPI init; process names via `psutil` | recorder, keyboard, ocr, command_runner, main |
+| `src/windows.py` | implemented | win32: enumerate / find / find-by-PID / rect / client-rect / focus / DPI init; process names via `psutil` | recorder, keyboard, ocr, command_runner, main |
 | `src/recorder.py` | planned | `RecordingManager`, capture-loop thread, PyAV PTS encoding | main (start/stop) |
 | `src/keyboard.py` | planned | `type_into_window` (focus + pyautogui) | command_runner, main |
 | `src/ocr.py` | planned | region grab → preprocess (2×, grayscale, invert-if-dark, Otsu) → pytesseract | command_runner, main |
@@ -77,6 +77,8 @@ General-purpose window-recording MCP server. FastAPI + fastapi-mcp over streamab
 | 6 | `design/epics/Epic-6.md` | Testing, MCP handshake, manual E2E, README |
 
 ## Change Log
+
+- 2026-07-30 — E2.S3: `open_app` endpoint implemented (`Popen` → poll for visible window by PID via new `find_window_by_pid`, fall back to exe-stem title match → `focus_window`; poll interval 100 ms; on timeout the child process is **left running** and `error` says so); endpoint tests + `find_window_by_pid` unit tests added.
 
 - 2026-07-30 — E2.S2: `list_windows` endpoint implemented (`enumerate_windows` via `asyncio.to_thread`, case-insensitive `title_filter`/`process_filter`, combinable); endpoint tests added to `tests/test_main.py`.
 - 2026-07-30 — E2.S1: `src/windows.py` implemented (DPI init guard, enumeration, hwnd/title/process resolution, mss-dict rect helpers, SW_RESTORE+click focus); `psutil` chosen for PID→process-name lookup; `pywin32` + `psutil` added to deps.

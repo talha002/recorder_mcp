@@ -105,6 +105,19 @@ def test_find_window_requires_exactly_one_criterion(
         windows.find_window(hwnd=1, title="x")
 
 
+def test_find_window_by_pid_matches_only_visible_owner(
+    fake_win32: dict[int, dict[str, Any]],
+) -> None:
+    info = windows.find_window_by_pid(1000)
+    assert info is not None
+    assert info.hwnd == 100
+
+
+def test_find_window_by_pid_not_found(fake_win32: dict[int, dict[str, Any]]) -> None:
+    assert windows.find_window_by_pid(3000) is None
+    assert windows.find_window_by_pid(9999) is None
+
+
 def test_get_window_rect_returns_mss_dict(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(win32gui, "GetWindowRect", lambda hwnd: (10, 20, 210, 120))
     assert windows.get_window_rect(1) == {"left": 10, "top": 20, "width": 200, "height": 100}

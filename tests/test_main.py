@@ -97,7 +97,7 @@ def test_tool_route_with_wrong_token_returns_401(client: TestClient) -> None:
 
 
 def test_tool_route_with_token_returns_not_implemented(client: TestClient) -> None:
-    response = client.post("/open-app", headers=AUTH_HEADERS, json={"path": "cmd.exe"})
+    response = client.post("/start-recording", headers=AUTH_HEADERS, json={"hwnd": 1001})
     assert response.status_code == 200
     assert response.json()["error"] == "not implemented"
 
@@ -180,6 +180,123 @@ def test_list_windows_no_match_returns_empty_list(
 
     assert response.status_code == 200
     assert response.json() == {"windows": [], "error": None}
+
+
+def _mock_popen(monkeypatch: pytest.MonkeyPatch, pid: int = 4321) -> tuple[Mock, Mock]:
+    proc = Mock()
+    proc.pid = pid
+    proc.poll.return_value = None
+    popen_mock = Mock(return_value=proc)
+    monkeypatch.setattr("src.main.Popen", popen_mock)
+    return popen_mock, proc
+
+
+def test_open_app_happy_path_forwards_args_and_focuses(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    popen_mock, _ = _mock_popen(monkeypatch)
+    info = WindowInfo(hwnd=1002, title="Command Prompt", process="cmd.exe")
+    by_pid_mock = Mock(return_value=info)
+    monkeypatch.setattr("src.main.find_window_by_pid", by_pid_mock)
+    find_mock = Mock(return_value=None)
+    monkeypatch.setattr("src.main.find_window", find_mock)
+    focus_mock = Mock()
+    monkeypatch.setattr("src.main.focus_window", focus_mock)
+
+    response = client.post(
+        "/open-app",
+        headers=AUTH_HEADERS,
+        json={"path": "cmd.exe", "args": ["/k", "echo hi"]},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload == {
+        "hwnd": 1002,
+        "pid": 4321,
+        "title": "Command Prompt",
+        "error": None,
+    }
+    popen_mock.assert_called_once_with(["cmd.exe", "/k", "echo hi"])
+    by_pid_mock.assert_called_with(4321)
+    find_mock.assert_not_called()
+    focus_mock.assert_called_once_with(1002)
+
+
+def test_open_app_falls_back_to_title_match(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _mock_popen(monkeypatch)
+    monkeypatch.setattr("src.main.find_window_by_pid", Mock(return_value=None))
+    info = WindowInfo(hwnd=1002, title="Command Prompt", process="cmd.exe")
+    find_mock = Mock(return_value=info)
+    monkeypatch.setattr("src.main.find_window", find_mock)
+    focus_mock = Mock()
+    monkeypatch.setattr("src.main.focus_window", focus_mock)
+
+    response = client.post("/open-app", headers=AUTH_HEADERS, json={"path": "cmd.exe"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["error"] is None
+    assert payload["hwnd"] == 1002
+    assert payload["pid"] == 4321
+    find_mock.assert_called_with(title="cmd")
+    focus_mock.assert_called_once_with(1002)
+
+
+def test_open_app_executable_not_found_returns_error(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    popen_mock = Mock(side_effect=FileNotFoundError("no such file"))
+    monkeypatch.setattr("src.main.Popen", popen_mock)
+
+    response = client.post("/open-app", headers=AUTH_HEADERS, json={"path": "no-such-app.exe"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["hwnd"] is None
+    assert payload["pid"] is None
+    assert "no-such-app.exe" in payload["error"]
+
+
+def test_open_app_timeout_returns_error_and_leaves_process_running(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, proc = _mock_popen(monkeypatch)
+    monkeypatch.setattr("src.main.find_window_by_pid", Mock(return_value=None))
+    monkeypatch.setattr("src.main.find_window", Mock(return_value=None))
+
+    response = client.post(
+        "/open-app",
+        headers=AUTH_HEADERS,
+        json={"path": "cmd.exe", "wait_timeout_s": 0.3},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["hwnd"] is None
+    assert payload["pid"] == 4321
+    assert "timed out" in payload["error"]
+    proc.kill.assert_not_called()
+
+
+def test_open_app_process_exits_before_window_returns_error(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, proc = _mock_popen(monkeypatch)
+    proc.poll.return_value = 1
+    proc.returncode = 1
+    monkeypatch.setattr("src.main.find_window_by_pid", Mock(return_value=None))
+    monkeypatch.setattr("src.main.find_window", Mock(return_value=None))
+
+    response = client.post("/open-app", headers=AUTH_HEADERS, json={"path": "cmd.exe"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["hwnd"] is None
+    assert payload["pid"] == 4321
+    assert "exited with code 1" in payload["error"]
 
 
 def test_mcp_endpoint_without_token_returns_401(client: TestClient) -> None:
