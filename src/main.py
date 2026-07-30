@@ -31,6 +31,7 @@ from src.models import (
     TypeTextResponse,
     WindowTarget,
 )
+from src.ocr import WindowMinimizedError, capture_window_text
 from src.recorder import AlreadyRecordingError, manager
 from src.windows import enumerate_windows, find_window, find_window_by_pid, focus_window
 
@@ -205,7 +206,18 @@ async def type_text(body: TypeTextRequest) -> TypeTextResponse:
     dependencies=_auth,
 )
 async def capture_output(body: CaptureOutputRequest) -> CaptureOutputResponse:
-    return CaptureOutputResponse(error="not implemented")
+    info = await asyncio.to_thread(
+        find_window, hwnd=body.hwnd, title=body.title, process=body.process
+    )
+    if info is None:
+        return CaptureOutputResponse(error=f"window not found: {_target_description(body)}")
+    try:
+        text = await asyncio.to_thread(capture_window_text, info.hwnd, True)
+    except WindowMinimizedError as exc:
+        return CaptureOutputResponse(error=str(exc))
+    except PyWinError as exc:
+        return CaptureOutputResponse(error=f"capture failed: {exc}")
+    return CaptureOutputResponse(text=text)
 
 
 @app.post(

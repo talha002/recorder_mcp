@@ -10,6 +10,7 @@ from src.config import settings
 from src.keyboard import InvalidWindowError
 from src.main import app
 from src.models import WindowInfo
+from src.ocr import WindowMinimizedError
 from src.recorder import AlreadyRecordingError, StopResult
 
 AUTH_HEADERS = {"Authorization": "Bearer test-token"}
@@ -99,7 +100,9 @@ def test_tool_route_with_wrong_token_returns_401(client: TestClient) -> None:
 
 
 def test_tool_route_with_token_returns_not_implemented(client: TestClient) -> None:
-    response = client.post("/capture-output", headers=AUTH_HEADERS, json={"hwnd": 1001})
+    response = client.post(
+        "/run-command", headers=AUTH_HEADERS, json={"hwnd": 1001, "command": "dir"}
+    )
     assert response.status_code == 200
     assert response.json()["error"] == "not implemented"
 
@@ -539,6 +542,62 @@ def test_type_text_typing_failure_returns_error(
     assert response.status_code == 200
     payload = response.json()
     assert payload["error"] == "typing failed: invalid window: hwnd 1001"
+
+
+def test_capture_output_without_token_returns_401(client: TestClient) -> None:
+    response = client.post("/capture-output", json={"hwnd": 1001})
+    assert response.status_code == 401
+
+
+def _mock_capture_target(monkeypatch: pytest.MonkeyPatch) -> Mock:
+    info = WindowInfo(hwnd=1002, title="Command Prompt", process="cmd.exe")
+    monkeypatch.setattr("src.main.find_window", Mock(return_value=info))
+    capture_mock = Mock(return_value="C:\\> echo hello\r\nhello")
+    monkeypatch.setattr("src.main.capture_window_text", capture_mock)
+    return capture_mock
+
+
+def test_capture_output_happy_path_returns_ocr_text(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    capture_mock = _mock_capture_target(monkeypatch)
+
+    response = client.post("/capture-output", headers=AUTH_HEADERS, json={"title": "cmd"})
+
+    assert response.status_code == 200
+    assert response.json() == {"text": "C:\\> echo hello\r\nhello", "error": None}
+    capture_mock.assert_called_once_with(1002, True)
+
+
+def test_capture_output_window_not_found_returns_error(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("src.main.find_window", Mock(return_value=None))
+    capture_mock = Mock()
+    monkeypatch.setattr("src.main.capture_window_text", capture_mock)
+
+    response = client.post(
+        "/capture-output", headers=AUTH_HEADERS, json={"title": "no-such-window"}
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "text": "",
+        "error": "window not found: title='no-such-window'",
+    }
+    capture_mock.assert_not_called()
+
+
+def test_capture_output_minimized_window_returns_error(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    capture_mock = _mock_capture_target(monkeypatch)
+    capture_mock.side_effect = WindowMinimizedError("window minimized")
+
+    response = client.post("/capture-output", headers=AUTH_HEADERS, json={"hwnd": 1002})
+
+    assert response.status_code == 200
+    assert response.json() == {"text": "", "error": "window minimized"}
 
 
 def test_mcp_endpoint_without_token_returns_401(client: TestClient) -> None:
