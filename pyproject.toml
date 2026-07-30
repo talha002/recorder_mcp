@@ -19,6 +19,8 @@ dependencies = [
     "pyautogui",
     "pytesseract",
     "pydantic-settings",
+    "psutil",
+    "pywin32; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]
@@ -42,7 +44,7 @@ strict = true
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["fastapi_mcp.*"]
+module = ["fastapi_mcp.*", "win32gui", "win32process", "win32con", "pywintypes", "pyautogui", "psutil"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
