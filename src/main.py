@@ -169,7 +169,12 @@ async def start_recording(body: StartRecordingRequest) -> StartRecordingResponse
     dependencies=_auth,
 )
 async def stop_recording(body: StopRecordingRequest) -> StopRecordingResponse:
-    return StopRecordingResponse(error="not implemented")
+    result = await asyncio.to_thread(manager.stop, body.session_id)
+    return StopRecordingResponse(
+        mp4_path=result.mp4_path,
+        duration_s=result.duration_s,
+        error=result.error,
+    )
 
 
 @app.post(

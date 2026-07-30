@@ -9,7 +9,7 @@ from mcp.types import LATEST_PROTOCOL_VERSION
 from src.config import settings
 from src.main import app
 from src.models import WindowInfo
-from src.recorder import AlreadyRecordingError
+from src.recorder import AlreadyRecordingError, StopResult
 
 AUTH_HEADERS = {"Authorization": "Bearer test-token"}
 
@@ -373,6 +373,97 @@ def test_start_recording_duplicate_hwnd_rejected(
     payload = response.json()
     assert payload["session_id"] == ""
     assert payload["error"] == "already recording"
+
+
+def test_stop_recording_without_token_returns_401(client: TestClient) -> None:
+    response = client.post("/stop-recording", json={"session_id": "sess-abc123"})
+    assert response.status_code == 401
+
+
+def test_stop_recording_happy_path_returns_mp4_and_duration(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manager_mock = Mock()
+    manager_mock.stop.return_value = StopResult(
+        mp4_path="recordings/record_sess-abc123.mp4", duration_s=5.2
+    )
+    monkeypatch.setattr("src.main.manager", manager_mock)
+
+    response = client.post(
+        "/stop-recording", headers=AUTH_HEADERS, json={"session_id": "sess-abc123"}
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload == {
+        "mp4_path": "recordings/record_sess-abc123.mp4",
+        "duration_s": 5.2,
+        "error": None,
+    }
+    manager_mock.stop.assert_called_once_with("sess-abc123")
+
+
+def test_stop_recording_unknown_session_returns_error(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manager_mock = Mock()
+    manager_mock.stop.return_value = StopResult(error="unknown session_id")
+    monkeypatch.setattr("src.main.manager", manager_mock)
+
+    response = client.post(
+        "/stop-recording", headers=AUTH_HEADERS, json={"session_id": "does-not-exist"}
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload == {"mp4_path": "", "duration_s": 0.0, "error": "unknown session_id"}
+
+
+def test_stop_recording_session_error_passthrough(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manager_mock = Mock()
+    manager_mock.stop.return_value = StopResult(
+        mp4_path="recordings/record_sess-abc123.mp4",
+        duration_s=3.1,
+        error="window closed",
+    )
+    monkeypatch.setattr("src.main.manager", manager_mock)
+
+    response = client.post(
+        "/stop-recording", headers=AUTH_HEADERS, json={"session_id": "sess-abc123"}
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload == {
+        "mp4_path": "recordings/record_sess-abc123.mp4",
+        "duration_s": 3.1,
+        "error": "window closed",
+    }
+
+
+def test_stop_recording_re_stop_returns_unknown_session_error(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manager_mock = Mock()
+    manager_mock.stop.side_effect = [
+        StopResult(mp4_path="recordings/record_sess-abc123.mp4", duration_s=5.2),
+        StopResult(error="unknown session_id"),
+    ]
+    monkeypatch.setattr("src.main.manager", manager_mock)
+
+    first = client.post(
+        "/stop-recording", headers=AUTH_HEADERS, json={"session_id": "sess-abc123"}
+    )
+    second = client.post(
+        "/stop-recording", headers=AUTH_HEADERS, json={"session_id": "sess-abc123"}
+    )
+
+    assert first.status_code == 200
+    assert first.json()["error"] is None
+    assert second.status_code == 200
+    assert second.json()["error"] == "unknown session_id"
 
 
 def test_mcp_endpoint_without_token_returns_401(client: TestClient) -> None:
