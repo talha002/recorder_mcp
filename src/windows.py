@@ -12,6 +12,7 @@ from src.models import WindowInfo
 __all__ = [
     "enumerate_windows",
     "find_window",
+    "find_window_by_pid",
     "focus_window",
     "get_client_rect_screen",
     "get_window_rect",
@@ -109,6 +110,17 @@ def find_window(
     needle = process.casefold()
     for info in candidates:
         if info.process.casefold() == needle:
+            return info
+    return None
+
+
+def find_window_by_pid(pid: int) -> WindowInfo | None:
+    for info in enumerate_windows(visible_only=True):
+        try:
+            _, window_pid = win32process.GetWindowThreadProcessId(info.hwnd)
+        except pywintypes.error:
+            continue
+        if window_pid == pid:
             return info
     return None
 

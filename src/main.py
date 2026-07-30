@@ -1,10 +1,15 @@
 import asyncio
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
+from subprocess import Popen
 
 from fastapi import Depends, FastAPI
 from fastapi_mcp import FastApiMCP
 from fastapi_mcp.types import AuthConfig
+from pyautogui import FailSafeException
+from pywintypes import error as PyWinError
 
 from src.auth import verify_mcp_token
 from src.config import settings
@@ -24,7 +29,7 @@ from src.models import (
     TypeTextRequest,
     TypeTextResponse,
 )
-from src.windows import enumerate_windows
+from src.windows import enumerate_windows, find_window, find_window_by_pid, focus_window
 
 __all__ = ["app"]
 
@@ -77,6 +82,48 @@ async def list_windows(body: ListWindowsRequest) -> ListWindowsResponse:
     return ListWindowsResponse(windows=windows)
 
 
+_OPEN_APP_POLL_INTERVAL_S = 0.1
+
+
+def _open_app_sync(path: str, args: list[str], wait_timeout_s: float) -> OpenAppResponse:
+    try:
+        proc = Popen([path, *args])
+    except OSError as exc:
+        return OpenAppResponse(error=f"failed to launch '{path}': {exc}")
+
+    deadline = time.monotonic() + wait_timeout_s
+    title_hint = Path(path).stem
+    while True:
+        info = find_window_by_pid(proc.pid)
+        if info is None and title_hint:
+            info = find_window(title=title_hint)
+        if info is not None:
+            try:
+                focus_window(info.hwnd)
+            except (PyWinError, FailSafeException) as exc:
+                return OpenAppResponse(
+                    hwnd=info.hwnd,
+                    pid=proc.pid,
+                    title=info.title,
+                    error=f"window found but focus failed: {exc}",
+                )
+            return OpenAppResponse(hwnd=info.hwnd, pid=proc.pid, title=info.title)
+        if proc.poll() is not None:
+            return OpenAppResponse(
+                pid=proc.pid,
+                error=(f"'{path}' exited with code {proc.returncode} before showing a window"),
+            )
+        if time.monotonic() >= deadline:
+            return OpenAppResponse(
+                pid=proc.pid,
+                error=(
+                    f"timed out after {wait_timeout_s:.1f}s waiting for a window "
+                    f"from pid {proc.pid} (process left running)"
+                ),
+            )
+        time.sleep(_OPEN_APP_POLL_INTERVAL_S)
+
+
 @app.post(
     "/open-app",
     operation_id="open_app",
@@ -84,7 +131,7 @@ async def list_windows(body: ListWindowsRequest) -> ListWindowsResponse:
     dependencies=_auth,
 )
 async def open_app(body: OpenAppRequest) -> OpenAppResponse:
-    return OpenAppResponse(error="not implemented")
+    return await asyncio.to_thread(_open_app_sync, body.path, body.args, body.wait_timeout_s)
 
 
 @app.post(
