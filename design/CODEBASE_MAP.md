@@ -20,7 +20,7 @@ General-purpose window-recording MCP server. FastAPI + fastapi-mcp over streamab
 
 | Module | Status | Responsibility | Used by |
 |---|---|---|---|
-| `src/main.py` | implemented | FastAPI app, FastApiMCP mount, `/health`, Tesseract startup check, `list_windows` + `open_app` + `start_recording` live, 4 placeholder tool routes (DPI hook pending Epic 2) | MCP clients |
+| `src/main.py` | implemented | FastAPI app, FastApiMCP mount, `/health`, Tesseract startup check, `list_windows` + `open_app` + `start_recording` + `stop_recording` + `type_text` live, 2 placeholder tool routes (DPI hook pending Epic 2) | MCP clients |
 | `src/config.py` | implemented | `Settings` (pydantic-settings) + `settings` singleton | all modules |
 | `src/auth.py` | implemented | `verify_mcp_token` Bearer dependency | every tool route |
 | `src/models.py` | implemented | All request/response Pydantic models, `WindowInfo` | main, services |
@@ -77,6 +77,8 @@ General-purpose window-recording MCP server. FastAPI + fastapi-mcp over streamab
 | 6 | `design/epics/Epic-6.md` | Testing, MCP handshake, manual E2E, README |
 
 ## Change Log
+
+- 2026-07-30 — E4.S2: `type_text` endpoint implemented (window resolution via `find_window` in `asyncio.to_thread`; `type_into_window(hwnd, text, press_enter)` in `asyncio.to_thread`; `error="window not found: <target>"` on miss; `InvalidWindowError`/`PyWinError`/`FailSafeException` → `error="typing failed: ..."`); 5 endpoint tests added to `tests/test_main.py`.
 
 - 2026-07-30 — E4.S1: `src/keyboard.py` implemented (`type_into_window`: `is_valid` guard raising `InvalidWindowError` → `focus_window` → tunable `SETTLE_DELAY_S` (150 ms) → `pyautogui.write(interval=TYPE_INTERVAL_S=0.01)` + optional Enter; pyautogui `FAILSAFE` kept enabled and the ASCII-only limitation of `pyautogui.write` documented in the module docstring); `tests/test_keyboard.py` added (5 tests, mocked pyautogui/windows: call order, skip-enter, invalid-hwnd abort, interval passthrough, FAILSAFE guard).
 

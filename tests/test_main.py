@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from mcp.types import LATEST_PROTOCOL_VERSION
 
 from src.config import settings
+from src.keyboard import InvalidWindowError
 from src.main import app
 from src.models import WindowInfo
 from src.recorder import AlreadyRecordingError, StopResult
@@ -98,7 +99,7 @@ def test_tool_route_with_wrong_token_returns_401(client: TestClient) -> None:
 
 
 def test_tool_route_with_token_returns_not_implemented(client: TestClient) -> None:
-    response = client.post("/type-text", headers=AUTH_HEADERS, json={"hwnd": 1001, "text": "hi"})
+    response = client.post("/capture-output", headers=AUTH_HEADERS, json={"hwnd": 1001})
     assert response.status_code == 200
     assert response.json()["error"] == "not implemented"
 
@@ -464,6 +465,80 @@ def test_stop_recording_re_stop_returns_unknown_session_error(
     assert first.json()["error"] is None
     assert second.status_code == 200
     assert second.json()["error"] == "unknown session_id"
+
+
+def test_type_text_without_token_returns_401(client: TestClient) -> None:
+    response = client.post("/type-text", json={"hwnd": 1001, "text": "hi"})
+    assert response.status_code == 401
+
+
+def _mock_typing_target(monkeypatch: pytest.MonkeyPatch) -> Mock:
+    info = WindowInfo(hwnd=1001, title="Untitled - Notepad", process="notepad.exe")
+    monkeypatch.setattr("src.main.find_window", Mock(return_value=info))
+    type_mock = Mock()
+    monkeypatch.setattr("src.main.type_into_window", type_mock)
+    return type_mock
+
+
+def test_type_text_happy_path_types_into_resolved_window(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    type_mock = _mock_typing_target(monkeypatch)
+
+    response = client.post(
+        "/type-text", headers=AUTH_HEADERS, json={"title": "notepad", "text": "hello"}
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"error": None}
+    type_mock.assert_called_once_with(1001, "hello", False)
+
+
+def test_type_text_press_enter_forwarded(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    type_mock = _mock_typing_target(monkeypatch)
+
+    response = client.post(
+        "/type-text",
+        headers=AUTH_HEADERS,
+        json={"hwnd": 1001, "text": "dir", "press_enter": True},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"error": None}
+    type_mock.assert_called_once_with(1001, "dir", True)
+
+
+def test_type_text_window_not_found_returns_error(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("src.main.find_window", Mock(return_value=None))
+    type_mock = Mock()
+    monkeypatch.setattr("src.main.type_into_window", type_mock)
+
+    response = client.post(
+        "/type-text", headers=AUTH_HEADERS, json={"title": "no-such-window", "text": "hi"}
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"error": "window not found: title='no-such-window'"}
+    type_mock.assert_not_called()
+
+
+def test_type_text_typing_failure_returns_error(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    type_mock = _mock_typing_target(monkeypatch)
+    type_mock.side_effect = InvalidWindowError("invalid window: hwnd 1001")
+
+    response = client.post(
+        "/type-text", headers=AUTH_HEADERS, json={"hwnd": 1001, "text": "hi"}
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["error"] == "typing failed: invalid window: hwnd 1001"
 
 
 def test_mcp_endpoint_without_token_returns_401(client: TestClient) -> None:
