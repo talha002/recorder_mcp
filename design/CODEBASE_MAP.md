@@ -25,7 +25,7 @@ General-purpose window-recording MCP server. FastAPI + fastapi-mcp over streamab
 | `src/auth.py` | implemented | `verify_mcp_token` Bearer dependency | every tool route |
 | `src/models.py` | implemented | All request/response Pydantic models, `WindowInfo` | main, services |
 | `src/windows.py` | implemented | win32: enumerate / find / find-by-PID / rect / client-rect / focus / DPI init; process names via `psutil` | recorder, keyboard, ocr, command_runner, main |
-| `src/recorder.py` | planned | `RecordingManager`, capture-loop thread, PyAV PTS encoding | main (start/stop) |
+| `src/recorder.py` | implemented | `RecordingManager` + capture-loop thread + PyAV PTS encoding (mss grab, locked geometry, h264/yuv420p, flush-in-finally, zero-frames cleanup) | main (start/stop) |
 | `src/keyboard.py` | planned | `type_into_window` (focus + pyautogui) | command_runner, main |
 | `src/ocr.py` | planned | region grab → preprocess (2×, grayscale, invert-if-dark, Otsu) → pytesseract | command_runner, main |
 | `src/services/command_runner.py` | planned | `run_command_sync`: focus → type+Enter → wait → OCR | main |
@@ -78,6 +78,7 @@ General-purpose window-recording MCP server. FastAPI + fastapi-mcp over streamab
 
 ## Change Log
 
+- 2026-07-30 — E3.S1: `src/recorder.py` implemented (`RecordingSession`/`RecordingManager`/`StopResult`, module singleton `manager`); duplicate-hwnd guard via `AlreadyRecordingError`; capture loop with `IsWindow`/`IsIconic` guards, per-frame rect re-read (follows moves), geometry locked even-rounded at first frame, PIL resize to locked dims on window resize; h264/yuv420p CRF 23 preset fast, `pts = int(elapsed * fps)` with dedup for strict monotonicity; encoder flush + container close in `finally`; zero-frames → file deleted + `error="no frames captured"`; `mss.MSS()` used (`mss.mss()` deprecated in mss 10.2); `tests/test_recorder.py` added (12 tests, mocked win32/mss/av).
 - 2026-07-30 — E2.S3: `open_app` endpoint implemented (`Popen` → poll for visible window by PID via new `find_window_by_pid`, fall back to exe-stem title match → `focus_window`; poll interval 100 ms; on timeout the child process is **left running** and `error` says so); endpoint tests + `find_window_by_pid` unit tests added.
 
 - 2026-07-30 — E2.S2: `list_windows` endpoint implemented (`enumerate_windows` via `asyncio.to_thread`, case-insensitive `title_filter`/`process_filter`, combinable); endpoint tests added to `tests/test_main.py`.
