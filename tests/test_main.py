@@ -12,6 +12,7 @@ from src.main import app
 from src.models import WindowInfo
 from src.ocr import WindowMinimizedError
 from src.recorder import AlreadyRecordingError, StopResult
+from src.services.command_runner import CommandResult
 
 AUTH_HEADERS = {"Authorization": "Bearer test-token"}
 
@@ -99,12 +100,109 @@ def test_tool_route_with_wrong_token_returns_401(client: TestClient) -> None:
     assert response.status_code == 401
 
 
-def test_tool_route_with_token_returns_not_implemented(client: TestClient) -> None:
+def test_run_command_without_token_returns_401(client: TestClient) -> None:
+    response = client.post("/run-command", json={"hwnd": 1001, "command": "dir"})
+    assert response.status_code == 401
+
+
+def _mock_command_target(monkeypatch: pytest.MonkeyPatch) -> Mock:
+    info = WindowInfo(hwnd=1002, title="Command Prompt", process="cmd.exe")
+    monkeypatch.setattr("src.main.find_window", Mock(return_value=info))
+    run_mock = Mock(return_value=CommandResult(output="C:\\> echo hello\r\nhello"))
+    monkeypatch.setattr("src.main.run_command_sync", run_mock)
+    return run_mock
+
+
+def test_run_command_happy_path_returns_output(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run_mock = _mock_command_target(monkeypatch)
+
     response = client.post(
-        "/run-command", headers=AUTH_HEADERS, json={"hwnd": 1001, "command": "dir"}
+        "/run-command",
+        headers=AUTH_HEADERS,
+        json={"hwnd": 1002, "command": "echo hello", "wait_s": 2.0},
     )
+
     assert response.status_code == 200
-    assert response.json()["error"] == "not implemented"
+    assert response.json() == {"output": "C:\\> echo hello\r\nhello", "error": None}
+    run_mock.assert_called_once_with(1002, "echo hello", 2.0)
+
+
+def test_run_command_default_wait_s_forwarded(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run_mock = _mock_command_target(monkeypatch)
+
+    response = client.post(
+        "/run-command", headers=AUTH_HEADERS, json={"hwnd": 1002, "command": "dir"}
+    )
+
+    assert response.status_code == 200
+    run_mock.assert_called_once_with(1002, "dir", 1.0)
+
+
+def test_run_command_window_not_found_returns_error(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("src.main.find_window", Mock(return_value=None))
+    run_mock = Mock()
+    monkeypatch.setattr("src.main.run_command_sync", run_mock)
+
+    response = client.post(
+        "/run-command",
+        headers=AUTH_HEADERS,
+        json={"title": "no-such-window", "command": "dir"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "output": "",
+        "error": "window not found: title='no-such-window'",
+    }
+    run_mock.assert_not_called()
+
+
+def test_run_command_primitive_failure_passthrough(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run_mock = _mock_command_target(monkeypatch)
+    run_mock.return_value = CommandResult(error="capture failed: window minimized")
+
+    response = client.post(
+        "/run-command", headers=AUTH_HEADERS, json={"hwnd": 1002, "command": "dir"}
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"output": "", "error": "capture failed: window minimized"}
+
+
+@pytest.mark.parametrize("wait_s", [0.0, 0.09, 60.1, 100])
+def test_run_command_wait_s_out_of_bounds_returns_422(
+    client: TestClient, wait_s: float
+) -> None:
+    response = client.post(
+        "/run-command",
+        headers=AUTH_HEADERS,
+        json={"hwnd": 1002, "command": "dir", "wait_s": wait_s},
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize("wait_s", [0.1, 60])
+def test_run_command_wait_s_bounds_accepted(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, wait_s: float
+) -> None:
+    run_mock = _mock_command_target(monkeypatch)
+
+    response = client.post(
+        "/run-command",
+        headers=AUTH_HEADERS,
+        json={"hwnd": 1002, "command": "dir", "wait_s": wait_s},
+    )
+
+    assert response.status_code == 200
+    run_mock.assert_called_once_with(1002, "dir", wait_s)
 
 
 def _mock_enumerate(monkeypatch: pytest.MonkeyPatch) -> Mock:

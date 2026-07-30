@@ -115,7 +115,7 @@ class CaptureOutputResponse(BaseModel):
 
 class RunCommandRequest(WindowTarget):
     command: str = Field(min_length=1)
-    wait_s: float = Field(default=1.0, ge=0)
+    wait_s: float = Field(default=1.0, ge=0.1, le=60)
 
 
 class RunCommandResponse(BaseModel):
