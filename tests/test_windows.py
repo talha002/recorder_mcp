@@ -3,7 +3,6 @@ from collections.abc import Callable
 from typing import Any
 
 import psutil
-import pyautogui
 import pytest
 import win32con
 import win32gui
@@ -134,15 +133,17 @@ def test_get_client_rect_screen_returns_mss_dict(monkeypatch: pytest.MonkeyPatch
     }
 
 
-def test_focus_window_restores_before_click(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_focus_window_restores_before_click(
+    monkeypatch: pytest.MonkeyPatch, mock_pyautogui: list[tuple[Any, ...]]
+) -> None:
     calls: list[tuple[str, Any]] = []
     monkeypatch.setattr(
         win32gui, "ShowWindow", lambda hwnd, cmd: calls.append(("show", cmd))
     )
     monkeypatch.setattr(win32gui, "GetWindowRect", lambda hwnd: (0, 0, 200, 100))
-    monkeypatch.setattr(pyautogui, "click", lambda x, y: calls.append(("click", (x, y))))
     windows.focus_window(1)
-    assert calls == [("show", win32con.SW_RESTORE), ("click", (100, 50))]
+    assert calls == [("show", win32con.SW_RESTORE)]
+    assert mock_pyautogui == [("click", (100, 50))]
 
 
 def test_is_valid(monkeypatch: pytest.MonkeyPatch) -> None:
