@@ -24,6 +24,7 @@ from src.models import (
     TypeTextRequest,
     TypeTextResponse,
 )
+from src.windows import enumerate_windows
 
 __all__ = ["app"]
 
@@ -66,7 +67,14 @@ async def health() -> dict[str, str]:
     dependencies=_auth,
 )
 async def list_windows(body: ListWindowsRequest) -> ListWindowsResponse:
-    return ListWindowsResponse(error="not implemented")
+    windows = await asyncio.to_thread(enumerate_windows, visible_only=True)
+    if body.title_filter is not None:
+        title_needle = body.title_filter.casefold()
+        windows = [w for w in windows if title_needle in w.title.casefold()]
+    if body.process_filter is not None:
+        process_needle = body.process_filter.casefold()
+        windows = [w for w in windows if process_needle in w.process.casefold()]
+    return ListWindowsResponse(windows=windows)
 
 
 @app.post(
