@@ -26,7 +26,7 @@ General-purpose window-recording MCP server. FastAPI + fastapi-mcp over streamab
 | `src/models.py` | implemented | All request/response Pydantic models, `WindowInfo` | main, services |
 | `src/windows.py` | implemented | win32: enumerate / find / find-by-PID / rect / client-rect / focus / DPI init; process names via `psutil` | recorder, keyboard, ocr, command_runner, main |
 | `src/recorder.py` | implemented | `RecordingManager` + capture-loop thread + PyAV PTS encoding (mss grab, locked geometry, h264/yuv420p, flush-in-finally, zero-frames cleanup) | main (start/stop) |
-| `src/keyboard.py` | planned | `type_into_window` (focus + pyautogui) | command_runner, main |
+| `src/keyboard.py` | implemented | `type_into_window` (`is_valid` guard → focus → settle delay → pyautogui typing); `InvalidWindowError`; tunable `SETTLE_DELAY_S`/`TYPE_INTERVAL_S` | command_runner, main |
 | `src/ocr.py` | planned | region grab → preprocess (2×, grayscale, invert-if-dark, Otsu) → pytesseract | command_runner, main |
 | `src/services/command_runner.py` | planned | `run_command_sync`: focus → type+Enter → wait → OCR | main |
 
@@ -77,6 +77,8 @@ General-purpose window-recording MCP server. FastAPI + fastapi-mcp over streamab
 | 6 | `design/epics/Epic-6.md` | Testing, MCP handshake, manual E2E, README |
 
 ## Change Log
+
+- 2026-07-30 — E4.S1: `src/keyboard.py` implemented (`type_into_window`: `is_valid` guard raising `InvalidWindowError` → `focus_window` → tunable `SETTLE_DELAY_S` (150 ms) → `pyautogui.write(interval=TYPE_INTERVAL_S=0.01)` + optional Enter; pyautogui `FAILSAFE` kept enabled and the ASCII-only limitation of `pyautogui.write` documented in the module docstring); `tests/test_keyboard.py` added (5 tests, mocked pyautogui/windows: call order, skip-enter, invalid-hwnd abort, interval passthrough, FAILSAFE guard).
 
 - 2026-07-30 — E3.S2: `start_recording` endpoint implemented (window resolution via `find_window` in `asyncio.to_thread`; `error="window not found: <target>"` on miss; `manager.start(hwnd, client_area_only, fps or settings.fps)`; `AlreadyRecordingError` → `error="already recording"`); 5 endpoint tests added to `tests/test_main.py`.
 
