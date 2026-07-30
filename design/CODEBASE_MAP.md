@@ -20,10 +20,10 @@ General-purpose window-recording MCP server. FastAPI + fastapi-mcp over streamab
 
 | Module | Status | Responsibility | Used by |
 |---|---|---|---|
-| `src/main.py` | planned | FastAPI app, FastApiMCP mount, `/health`, startup hooks (Tesseract check, DPI), 7 tool routes | MCP clients |
-| `src/config.py` | planned | `Settings` (pydantic-settings) + `settings` singleton | all modules |
-| `src/auth.py` | planned | `verify_mcp_token` Bearer dependency | every tool route |
-| `src/models.py` | planned | All request/response Pydantic models, `WindowInfo` | main, services |
+| `src/main.py` | implemented | FastAPI app, FastApiMCP mount, `/health`, Tesseract startup check, 7 placeholder tool routes (DPI hook pending Epic 2) | MCP clients |
+| `src/config.py` | implemented | `Settings` (pydantic-settings) + `settings` singleton | all modules |
+| `src/auth.py` | implemented | `verify_mcp_token` Bearer dependency | every tool route |
+| `src/models.py` | implemented | All request/response Pydantic models, `WindowInfo` | main, services |
 | `src/windows.py` | planned | win32: enumerate / find / rect / client-rect / focus / DPI init | recorder, keyboard, ocr, command_runner, main |
 | `src/recorder.py` | planned | `RecordingManager`, capture-loop thread, PyAV PTS encoding | main (start/stop) |
 | `src/keyboard.py` | planned | `type_into_window` (focus + pyautogui) | command_runner, main |
@@ -78,4 +78,5 @@ General-purpose window-recording MCP server. FastAPI + fastapi-mcp over streamab
 
 ## Change Log
 
+- 2026-07-30 — E1.S5: `src/main.py` implemented (FastApiMCP at `/mcp`, `/health`, Tesseract startup check, 7 placeholder routes); `mcp` pinned `<2.0.0` (fastapi-mcp 0.4.0 incompatibility with mcp 2.x).
 - 2026-07-28 — Initial map created from `design/specs/mvp-1.md` (all modules `planned`).
