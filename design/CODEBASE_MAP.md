@@ -20,7 +20,7 @@ General-purpose window-recording MCP server. FastAPI + fastapi-mcp over streamab
 
 | Module | Status | Responsibility | Used by |
 |---|---|---|---|
-| `src/main.py` | implemented | FastAPI app, FastApiMCP mount, `/health`, Tesseract startup check, 7 placeholder tool routes (DPI hook pending Epic 2) | MCP clients |
+| `src/main.py` | implemented | FastAPI app, FastApiMCP mount, `/health`, Tesseract startup check, `list_windows` live, 6 placeholder tool routes (DPI hook pending Epic 2) | MCP clients |
 | `src/config.py` | implemented | `Settings` (pydantic-settings) + `settings` singleton | all modules |
 | `src/auth.py` | implemented | `verify_mcp_token` Bearer dependency | every tool route |
 | `src/models.py` | implemented | All request/response Pydantic models, `WindowInfo` | main, services |
@@ -78,6 +78,7 @@ General-purpose window-recording MCP server. FastAPI + fastapi-mcp over streamab
 
 ## Change Log
 
+- 2026-07-30 — E2.S2: `list_windows` endpoint implemented (`enumerate_windows` via `asyncio.to_thread`, case-insensitive `title_filter`/`process_filter`, combinable); endpoint tests added to `tests/test_main.py`.
 - 2026-07-30 — E2.S1: `src/windows.py` implemented (DPI init guard, enumeration, hwnd/title/process resolution, mss-dict rect helpers, SW_RESTORE+click focus); `psutil` chosen for PID→process-name lookup; `pywin32` + `psutil` added to deps.
 - 2026-07-30 — E1.S5: `src/main.py` implemented (FastApiMCP at `/mcp`, `/health`, Tesseract startup check, 7 placeholder routes); `mcp` pinned `<2.0.0` (fastapi-mcp 0.4.0 incompatibility with mcp 2.x).
 - 2026-07-28 — Initial map created from `design/specs/mvp-1.md` (all modules `planned`).

@@ -1,5 +1,6 @@
 from collections.abc import Iterator
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -7,6 +8,7 @@ from mcp.types import LATEST_PROTOCOL_VERSION
 
 from src.config import settings
 from src.main import app
+from src.models import WindowInfo
 
 AUTH_HEADERS = {"Authorization": "Bearer test-token"}
 
@@ -19,6 +21,12 @@ EXPECTED_TOOLS = {
     "capture_output",
     "run_command",
 }
+
+FAKE_WINDOWS = [
+    WindowInfo(hwnd=1001, title="Untitled - Notepad", process="notepad.exe"),
+    WindowInfo(hwnd=1002, title="Command Prompt", process="cmd.exe"),
+    WindowInfo(hwnd=1003, title="cmd - build", process="cmd.exe"),
+]
 
 
 @pytest.fixture
@@ -89,9 +97,89 @@ def test_tool_route_with_wrong_token_returns_401(client: TestClient) -> None:
 
 
 def test_tool_route_with_token_returns_not_implemented(client: TestClient) -> None:
-    response = client.post("/list-windows", headers=AUTH_HEADERS, json={})
+    response = client.post("/open-app", headers=AUTH_HEADERS, json={"path": "cmd.exe"})
     assert response.status_code == 200
     assert response.json()["error"] == "not implemented"
+
+
+def _mock_enumerate(monkeypatch: pytest.MonkeyPatch) -> Mock:
+    enumerate_mock = Mock(return_value=list(FAKE_WINDOWS))
+    monkeypatch.setattr("src.main.enumerate_windows", enumerate_mock)
+    return enumerate_mock
+
+
+def test_list_windows_returns_all_visible_windows(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    enumerate_mock = _mock_enumerate(monkeypatch)
+
+    response = client.post("/list-windows", headers=AUTH_HEADERS, json={})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["error"] is None
+    assert payload["windows"] == [w.model_dump() for w in FAKE_WINDOWS]
+    enumerate_mock.assert_called_once_with(visible_only=True)
+
+
+def test_list_windows_title_filter(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _mock_enumerate(monkeypatch)
+
+    response = client.post(
+        "/list-windows", headers=AUTH_HEADERS, json={"title_filter": "NoTePaD"}
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["error"] is None
+    assert [w["hwnd"] for w in payload["windows"]] == [1001]
+
+
+def test_list_windows_process_filter(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _mock_enumerate(monkeypatch)
+
+    response = client.post(
+        "/list-windows", headers=AUTH_HEADERS, json={"process_filter": "CMD"}
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["error"] is None
+    assert [w["hwnd"] for w in payload["windows"]] == [1002, 1003]
+
+
+def test_list_windows_both_filters_combined(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _mock_enumerate(monkeypatch)
+
+    response = client.post(
+        "/list-windows",
+        headers=AUTH_HEADERS,
+        json={"title_filter": "build", "process_filter": "cmd.exe"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["error"] is None
+    assert [w["hwnd"] for w in payload["windows"]] == [1003]
+
+
+def test_list_windows_no_match_returns_empty_list(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _mock_enumerate(monkeypatch)
+
+    response = client.post(
+        "/list-windows", headers=AUTH_HEADERS, json={"title_filter": "no-such-window"}
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"windows": [], "error": None}
 
 
 def test_mcp_endpoint_without_token_returns_401(client: TestClient) -> None:
