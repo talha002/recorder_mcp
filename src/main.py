@@ -33,6 +33,7 @@ from src.models import (
 )
 from src.ocr import WindowMinimizedError, capture_window_text
 from src.recorder import AlreadyRecordingError, manager
+from src.services.command_runner import run_command_sync
 from src.windows import enumerate_windows, find_window, find_window_by_pid, focus_window
 
 __all__ = ["app"]
@@ -227,7 +228,19 @@ async def capture_output(body: CaptureOutputRequest) -> CaptureOutputResponse:
     dependencies=_auth,
 )
 async def run_command(body: RunCommandRequest) -> RunCommandResponse:
-    return RunCommandResponse(error="not implemented")
+    """Focus a window, type a command with Enter, wait, then OCR the window text.
+
+    Total latency is approximately `wait_s` plus OCR time (~0.3-1s).
+    """
+    info = await asyncio.to_thread(
+        find_window, hwnd=body.hwnd, title=body.title, process=body.process
+    )
+    if info is None:
+        return RunCommandResponse(error=f"window not found: {_target_description(body)}")
+    result = await asyncio.to_thread(
+        run_command_sync, info.hwnd, body.command, body.wait_s
+    )
+    return RunCommandResponse(output=result.output, error=result.error)
 
 
 mcp.setup_server()
