@@ -4,8 +4,9 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from subprocess import Popen
+from typing import Annotated
 
-from fastapi import Depends, FastAPI
+from fastapi import Body, Depends, FastAPI
 from fastapi_mcp import FastApiMCP
 from fastapi_mcp.types import AuthConfig
 from pyautogui import FailSafeException
@@ -76,7 +77,10 @@ async def health() -> dict[str, str]:
     response_model=ListWindowsResponse,
     dependencies=_auth,
 )
-async def list_windows(body: ListWindowsRequest) -> ListWindowsResponse:
+async def list_windows(
+    body: Annotated[ListWindowsRequest | None, Body()] = None,
+) -> ListWindowsResponse:
+    body = body or ListWindowsRequest()
     windows = await asyncio.to_thread(enumerate_windows, visible_only=True)
     if body.title_filter is not None:
         title_needle = body.title_filter.casefold()

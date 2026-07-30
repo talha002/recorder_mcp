@@ -15,7 +15,7 @@ from PIL import Image
 os.environ.setdefault("MCP_API_TOKEN", "test-token")
 
 from src.config import settings
-from src.main import app
+from src.main import app, mcp
 from src.models import WindowInfo
 
 TEST_TOKEN = "test-token"
@@ -37,6 +37,8 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClie
     monkeypatch.setattr(settings, "tesseract_cmd", fake_tesseract)
     with TestClient(app) as test_client:
         yield test_client
+    if mcp._http_transport is not None:
+        mcp._http_transport._manager_started = False
 
 
 @pytest.fixture

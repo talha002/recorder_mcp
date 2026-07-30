@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -747,6 +748,44 @@ def test_mcp_endpoint_without_token_returns_401(client: TestClient) -> None:
     assert response.status_code == 401
 
 
+def test_mcp_endpoint_with_wrong_token_returns_401(client: TestClient) -> None:
+    response = client.post(
+        "/mcp",
+        headers={
+            "Authorization": "Bearer wrong-token",
+            "Accept": "application/json, text/event-stream",
+        },
+        json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+    )
+    assert response.status_code == 401
+
+
+def test_mcp_initialize_returns_protocol_version_and_server_info(
+    client: TestClient,
+) -> None:
+    response = client.post(
+        "/mcp",
+        headers=_mcp_headers(),
+        json={
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": LATEST_PROTOCOL_VERSION,
+                "capabilities": {},
+                "clientInfo": {"name": "pytest", "version": "0.0.0"},
+            },
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    result = response.json()["result"]
+    assert result["protocolVersion"] == LATEST_PROTOCOL_VERSION
+    assert result["serverInfo"]["name"] == "recorder-mcp"
+    assert result["serverInfo"]["version"]
+    assert "tools" in result["capabilities"]
+
+
 def test_mcp_handshake_lists_seven_tools(client: TestClient) -> None:
     session_id = _mcp_handshake(client)
 
@@ -759,6 +798,63 @@ def test_mcp_handshake_lists_seven_tools(client: TestClient) -> None:
     tools = {tool["name"] for tool in response.json()["result"]["tools"]}
     assert tools == EXPECTED_TOOLS
     assert "health" not in tools
+
+
+def test_mcp_tools_call_list_windows_returns_mocked_windows(
+    client: TestClient, mock_enum_windows: Mock
+) -> None:
+    session_id = _mcp_handshake(client)
+    enumerate_mock = _mock_enumerate(mock_enum_windows)
+
+    response = client.post(
+        "/mcp",
+        headers=_mcp_headers(session_id),
+        json={
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/call",
+            "params": {"name": "list_windows", "arguments": {}},
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    result = response.json()["result"]
+    assert result["isError"] is False
+    content = result["content"]
+    assert len(content) == 1
+    assert content[0]["type"] == "text"
+    payload = json.loads(content[0]["text"])
+    assert payload["error"] is None
+    assert payload["windows"] == [w.model_dump() for w in FAKE_WINDOWS]
+    enumerate_mock.assert_called_once_with(visible_only=True)
+
+
+def test_mcp_tools_call_list_windows_forwards_arguments(
+    client: TestClient, mock_enum_windows: Mock
+) -> None:
+    session_id = _mcp_handshake(client)
+    _mock_enumerate(mock_enum_windows)
+
+    response = client.post(
+        "/mcp",
+        headers=_mcp_headers(session_id),
+        json={
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/call",
+            "params": {
+                "name": "list_windows",
+                "arguments": {"process_filter": "CMD"},
+            },
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    result = response.json()["result"]
+    assert result["isError"] is False
+    payload = json.loads(result["content"][0]["text"])
+    assert payload["error"] is None
+    assert [w["hwnd"] for w in payload["windows"]] == [1002, 1003]
 
 
 def test_missing_tesseract_fails_startup(

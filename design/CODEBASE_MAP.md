@@ -20,7 +20,7 @@ General-purpose window-recording MCP server. FastAPI + fastapi-mcp over streamab
 
 | Module | Status | Responsibility | Used by |
 |---|---|---|---|
-| `src/main.py` | implemented | FastAPI app, FastApiMCP mount, `/health`, Tesseract startup check, `list_windows` + `open_app` + `start_recording` + `stop_recording` + `type_text` live, 2 placeholder tool routes (DPI hook pending Epic 2) | MCP clients |
+| `src/main.py` | implemented | FastAPI app, FastApiMCP mount, `/health`, Tesseract startup check, all 7 tool routes live (DPI hook pending Epic 2) | MCP clients |
 | `src/config.py` | implemented | `Settings` (pydantic-settings) + `settings` singleton | all modules |
 | `src/auth.py` | implemented | `verify_mcp_token` Bearer dependency | every tool route |
 | `src/models.py` | implemented | All request/response Pydantic models, `WindowInfo` | main, services |
@@ -28,7 +28,7 @@ General-purpose window-recording MCP server. FastAPI + fastapi-mcp over streamab
 | `src/recorder.py` | implemented | `RecordingManager` + capture-loop thread + PyAV PTS encoding (mss grab, locked geometry, h264/yuv420p, flush-in-finally, zero-frames cleanup) | main (start/stop) |
 | `src/keyboard.py` | implemented | `type_into_window` (`is_valid` guard → focus → settle delay → pyautogui typing); `InvalidWindowError`; tunable `SETTLE_DELAY_S`/`TYPE_INTERVAL_S` | command_runner, main |
 | `src/ocr.py` | implemented | `capture_window_text` (`IsIconic` guard → `WindowMinimizedError("window minimized")`; client/window rect → mss grab → PIL → `upscale` → `to_grayscale` → `invert_if_dark` → `otsu_threshold` → `pytesseract.image_to_string`); tuning knobs `UPSCALE_FACTOR`/`DARK_MEAN_LUMINANCE`; `tesseract_cmd` wired from settings at import | command_runner, main |
-| `src/services/command_runner.py` | planned | `run_command_sync`: focus → type+Enter → wait → OCR | main |
+| `src/services/command_runner.py` | implemented | `run_command_sync`: focus → type+Enter → wait → OCR | main |
 
 ## MCP Tools (7)
 
@@ -77,6 +77,8 @@ General-purpose window-recording MCP server. FastAPI + fastapi-mcp over streamab
 | 6 | `design/epics/Epic-6.md` | Testing, MCP handshake, manual E2E, README |
 
 ## Change Log
+
+- 2026-07-30 — E6.S2: MCP handshake tests completed in `tests/test_main.py` (real JSON-RPC over ASGI transport: `initialize` result asserts `protocolVersion`/`serverInfo`/`capabilities.tools`; `_mcp_handshake` → `tools/list` asserts exactly the 7 tool names + `/health` exclusion; `tools/call list_windows` round-trip with mocked `enumerate_windows`, incl. argument forwarding; 401 negatives for missing + wrong Bearer token at `/mcp`). `list_windows` endpoint body made optional (`Annotated[ListWindowsRequest | None, Body()] = None`) — fastapi-mcp sends no HTTP body for empty `arguments`, which 422'd MCP no-arg calls. `tests/conftest.py` `client` teardown resets `mcp._http_transport._manager_started` (fastapi-mcp 0.4.0 never calls `shutdown()`, so the lazily-started session-manager task group outlives a TestClient lifespan and breaks the next one). Suite: 145 tests green; `ruff`/`mypy` clean.
 
 - 2026-07-30 — E6.S1: `tests/conftest.py` completed with shared fixtures — `client` (TestClient, fake `tesseract_cmd`), `auth_headers`, `mock_find_window`/`mock_enum_windows` (fixed `WindowInfo` constants `FIXED_WINDOW`/`CMD_WINDOW`), `mock_mss` (`FakeSct`/`FakeShot` synthetic frames), `mock_av` (`FakeContainer`/`FakeStream`/`FakeFrame` in-memory encoder), `mock_pytesseract` (canned `CANNED_OCR_TEXT`, records images), `mock_pyautogui` (records write/press/click). `test_main.py`, `test_recorder.py`, `test_ocr.py`, `test_keyboard.py`, `test_windows.py` refactored onto the shared fixtures (per-module fixture duplication removed). Suite: 141 tests, green headless; `ruff`/`mypy` clean over tests.
 
