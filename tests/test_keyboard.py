@@ -8,20 +8,15 @@ from src import keyboard
 
 
 @pytest.fixture
-def calls(monkeypatch: pytest.MonkeyPatch) -> list[tuple[Any, ...]]:
-    log: list[tuple[Any, ...]] = []
+def calls(
+    monkeypatch: pytest.MonkeyPatch, mock_pyautogui: list[tuple[Any, ...]]
+) -> list[tuple[Any, ...]]:
     monkeypatch.setattr(keyboard, "is_valid", lambda hwnd: True)
     monkeypatch.setattr(
-        keyboard, "focus_window", lambda hwnd: log.append(("focus", hwnd))
+        keyboard, "focus_window", lambda hwnd: mock_pyautogui.append(("focus", hwnd))
     )
-    monkeypatch.setattr(time, "sleep", lambda s: log.append(("sleep", s)))
-    monkeypatch.setattr(
-        pyautogui,
-        "write",
-        lambda text, interval=0.0: log.append(("write", text, interval)),
-    )
-    monkeypatch.setattr(pyautogui, "press", lambda key: log.append(("press", key)))
-    return log
+    monkeypatch.setattr(time, "sleep", lambda s: mock_pyautogui.append(("sleep", s)))
+    return mock_pyautogui
 
 
 def test_type_into_window_focus_delay_write_enter_order(
@@ -48,21 +43,15 @@ def test_type_into_window_press_enter_false_skips_enter(
 
 
 def test_type_into_window_invalid_hwnd_raises_before_typing(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, mock_pyautogui: list[tuple[Any, ...]]
 ) -> None:
-    log: list[tuple[Any, ...]] = []
     monkeypatch.setattr(keyboard, "is_valid", lambda hwnd: False)
     monkeypatch.setattr(
-        keyboard, "focus_window", lambda hwnd: log.append(("focus", hwnd))
-    )
-    monkeypatch.setattr(
-        pyautogui,
-        "write",
-        lambda text, interval=0.0: log.append(("write", text, interval)),
+        keyboard, "focus_window", lambda hwnd: mock_pyautogui.append(("focus", hwnd))
     )
     with pytest.raises(keyboard.InvalidWindowError, match="invalid window"):
         keyboard.type_into_window(999, "echo hello")
-    assert log == []
+    assert mock_pyautogui == []
 
 
 def test_write_interval_passed_through(

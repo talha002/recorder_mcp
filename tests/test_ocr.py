@@ -1,7 +1,6 @@
 from collections.abc import Callable
 from typing import Any
 
-import mss
 import numpy as np
 import pytesseract
 import pytest
@@ -10,6 +9,7 @@ from PIL import Image
 
 from src import ocr
 from src.config import settings
+from tests.conftest import CANNED_OCR_TEXT, FakeSct
 
 
 @pytest.fixture
@@ -27,57 +27,6 @@ def fake_win32(monkeypatch: pytest.MonkeyPatch) -> dict[str, bool]:
         lambda hwnd: {"left": 0, "top": 0, "width": 64, "height": 48},
     )
     return state
-
-
-class _FakeShot:
-    def __init__(self, width: int, height: int) -> None:
-        self.width = width
-        self.height = height
-        self.bgra = bytes((200, 200, 200, 255)) * (width * height)
-
-
-class _FakeSct:
-    def __init__(self) -> None:
-        self.regions: list[dict[str, int]] = []
-        self.closed = False
-
-    def grab(self, monitor: dict[str, Any]) -> _FakeShot:
-        region = {
-            "left": int(monitor["left"]),
-            "top": int(monitor["top"]),
-            "width": int(monitor["width"]),
-            "height": int(monitor["height"]),
-        }
-        self.regions.append(region)
-        return _FakeShot(region["width"], region["height"])
-
-    def close(self) -> None:
-        self.closed = True
-
-
-@pytest.fixture
-def fake_mss(monkeypatch: pytest.MonkeyPatch) -> list[_FakeSct]:
-    instances: list[_FakeSct] = []
-
-    def factory(**kwargs: Any) -> _FakeSct:
-        sct = _FakeSct()
-        instances.append(sct)
-        return sct
-
-    monkeypatch.setattr(mss, "MSS", factory)
-    return instances
-
-
-@pytest.fixture
-def fake_tesseract(monkeypatch: pytest.MonkeyPatch) -> list[Image.Image]:
-    received: list[Image.Image] = []
-
-    def fake_image_to_string(img: Image.Image) -> str:
-        received.append(img)
-        return "recognized text"
-
-    monkeypatch.setattr(pytesseract, "image_to_string", fake_image_to_string)
-    return received
 
 
 def _synthetic(bg: int, fg: int) -> Image.Image:
@@ -131,8 +80,8 @@ def test_otsu_threshold_splits_bimodal_image() -> None:
 def test_capture_pipeline_order(
     monkeypatch: pytest.MonkeyPatch,
     fake_win32: dict[str, bool],
-    fake_mss: list[_FakeSct],
-    fake_tesseract: list[Image.Image],
+    mock_mss: list[FakeSct],
+    mock_pytesseract: list[Image.Image],
 ) -> None:
     calls: list[str] = []
 
@@ -155,15 +104,15 @@ def test_capture_pipeline_order(
 def test_capture_passes_preprocessed_image_to_tesseract(
     monkeypatch: pytest.MonkeyPatch,
     fake_win32: dict[str, bool],
-    fake_mss: list[_FakeSct],
-    fake_tesseract: list[Image.Image],
+    mock_mss: list[FakeSct],
+    mock_pytesseract: list[Image.Image],
 ) -> None:
     sentinel = Image.new("L", (4, 4), color=0)
     monkeypatch.setattr(ocr, "otsu_threshold", lambda img: sentinel)
 
     text = ocr.capture_window_text(100)
-    assert fake_tesseract == [sentinel]
-    assert text == "recognized text"
+    assert mock_pytesseract == [sentinel]
+    assert text == CANNED_OCR_TEXT
 
 
 def test_tesseract_cmd_wired_from_settings() -> None:
@@ -172,30 +121,30 @@ def test_tesseract_cmd_wired_from_settings() -> None:
 
 def test_capture_minimized_window_raises_without_grab(
     fake_win32: dict[str, bool],
-    fake_mss: list[_FakeSct],
-    fake_tesseract: list[Image.Image],
+    mock_mss: list[FakeSct],
+    mock_pytesseract: list[Image.Image],
 ) -> None:
     fake_win32["iconic"] = True
     with pytest.raises(ocr.WindowMinimizedError, match="window minimized"):
         ocr.capture_window_text(100)
-    assert fake_mss == []
-    assert fake_tesseract == []
+    assert mock_mss == []
+    assert mock_pytesseract == []
 
 
 def test_capture_uses_client_rect_by_default(
     fake_win32: dict[str, bool],
-    fake_mss: list[_FakeSct],
-    fake_tesseract: list[Image.Image],
+    mock_mss: list[FakeSct],
+    mock_pytesseract: list[Image.Image],
 ) -> None:
     ocr.capture_window_text(100)
-    assert fake_mss[0].regions == [{"left": 5, "top": 25, "width": 60, "height": 40}]
-    assert fake_mss[0].closed is True
+    assert mock_mss[0].regions == [{"left": 5, "top": 25, "width": 60, "height": 40}]
+    assert mock_mss[0].closed is True
 
 
 def test_capture_uses_window_rect_when_client_area_only_false(
     fake_win32: dict[str, bool],
-    fake_mss: list[_FakeSct],
-    fake_tesseract: list[Image.Image],
+    mock_mss: list[FakeSct],
+    mock_pytesseract: list[Image.Image],
 ) -> None:
     ocr.capture_window_text(100, client_area_only=False)
-    assert fake_mss[0].regions == [{"left": 0, "top": 0, "width": 64, "height": 48}]
+    assert mock_mss[0].regions == [{"left": 0, "top": 0, "width": 64, "height": 48}]
