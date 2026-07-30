@@ -29,6 +29,7 @@ from src.models import (
     TypeTextRequest,
     TypeTextResponse,
 )
+from src.recorder import AlreadyRecordingError, manager
 from src.windows import enumerate_windows, find_window, find_window_by_pid, focus_window
 
 __all__ = ["app"]
@@ -134,6 +135,14 @@ async def open_app(body: OpenAppRequest) -> OpenAppResponse:
     return await asyncio.to_thread(_open_app_sync, body.path, body.args, body.wait_timeout_s)
 
 
+def _target_description(body: StartRecordingRequest) -> str:
+    if body.hwnd is not None:
+        return f"hwnd={body.hwnd}"
+    if body.title is not None:
+        return f"title={body.title!r}"
+    return f"process={body.process!r}"
+
+
 @app.post(
     "/start-recording",
     operation_id="start_recording",
@@ -141,7 +150,16 @@ async def open_app(body: OpenAppRequest) -> OpenAppResponse:
     dependencies=_auth,
 )
 async def start_recording(body: StartRecordingRequest) -> StartRecordingResponse:
-    return StartRecordingResponse(error="not implemented")
+    info = await asyncio.to_thread(
+        find_window, hwnd=body.hwnd, title=body.title, process=body.process
+    )
+    if info is None:
+        return StartRecordingResponse(error=f"window not found: {_target_description(body)}")
+    try:
+        session_id = manager.start(info.hwnd, body.client_area_only, body.fps or settings.fps)
+    except AlreadyRecordingError:
+        return StartRecordingResponse(error="already recording")
+    return StartRecordingResponse(session_id=session_id)
 
 
 @app.post(
